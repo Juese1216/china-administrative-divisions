@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="section-title">NER 实体识别</h1>
+<p class="subtle">展示“正则 + 词表匹配 + 可选 UIE 增强接口”抽取出的实体结果，并支持按实体类型筛选。</p>
+
+<section class="grid two section-gap">
+  <div class="panel">
+    <h2>实体类型分布</h2>
+    <div id="typeChart" class="chart" data-chart="1"></div>
+  </div>
+  <div class="panel">
+    <h2>高频实体</h2>
+    <div id="topChart" class="chart" data-chart="1"></div>
+  </div>
+</section>
+
+<section class="panel section-gap">
+  <h2>实体结果</h2>
+  <div class="toolbar">
+    <select id="entityType">
+      <option value="">全部类型</option>
+      <option value="ADMIN_AREA">区划名称</option>
+      <option value="GOV_ORG">政府机关</option>
+      <option value="ADDRESS">驻地地址</option>
+    </select>
+    <input id="keyword" placeholder="实体、句子或编号">
+    <button id="filterButton">查询</button>
+  </div>
+  <div id="entitiesTable"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function drawTypeChart(distribution) {
+    const entries = Object.entries(distribution).sort((a, b) => b[1] - a[1]);
+    const chart = echarts.init(document.getElementById('typeChart'));
+    document.getElementById('typeChart')._chart = chart;
+    chart.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: 92, right: 24, top: 28, bottom: 34 },
+      xAxis: { type: 'value' },
+      yAxis: { type: 'category', data: entries.map(item => item[0]).reverse() },
+      series: [{ type: 'bar', data: entries.map(item => item[1]).reverse(), itemStyle: { color: '#59a14f' } }]
+    });
+  }
+
+  function drawTopChart(distribution) {
+    const entries = Object.entries(distribution).sort((a, b) => b[1] - a[1]);
+    const chart = echarts.init(document.getElementById('topChart'));
+    document.getElementById('topChart')._chart = chart;
+    chart.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: 108, right: 24, top: 28, bottom: 34 },
+      xAxis: { type: 'value' },
+      yAxis: { type: 'category', data: entries.map(item => item[0]).reverse() },
+      series: [{ type: 'bar', data: entries.map(item => item[1]).reverse(), itemStyle: { color: '#f58518' } }]
+    });
+    chart.on('click', params => {
+      document.getElementById('keyword').value = params.name;
+      loadEntities();
+    });
+  }
+
+  async function loadEntities() {
+    const params = new URLSearchParams();
+    const type = document.getElementById('entityType').value;
+    const keyword = document.getElementById('keyword').value.trim();
+    if (type) params.set('type', type);
+    if (keyword) params.set('keyword', keyword);
+    params.set('limit', '0');
+    const payload = await getJSON(`/api/entities?${params.toString()}`);
+    drawTypeChart(payload.type_distribution);
+    drawTopChart(payload.top_entities);
+    renderTable('entitiesTable', payload.records, [
+      { label: '句子编号', key: 'event_id' },
+      { label: '实体', key: 'entity_text', render: row => `<a href="/relations?keyword=${encodeURIComponent(row.entity_text)}">${escapeHTML(row.entity_text)}</a>` },
+      { label: '类型', key: 'entity_type' },
+      { label: '位置', key: 'start_pos', render: row => `${row.start_pos ?? ''}-${row.end_pos ?? ''}` },
+      { label: '区划代码', key: 'normalized_code', render: row => row.normalized_code ? linkArea(String(row.normalized_code).replace('.0', ''), row.normalized_code) : '' },
+      { label: '置信度', key: 'confidence', render: row => formatNumber(row.confidence) },
+      { label: '方法', key: 'method' },
+      { label: '原句', key: 'sentence' }
+    ]);
+  }
+
+  document.getElementById('filterButton').addEventListener('click', loadEntities);
+  document.getElementById('keyword').addEventListener('keydown', event => {
+    if (event.key === 'Enter') loadEntities();
+  });
+  loadEntities();
+</script>
+{% endblock %}

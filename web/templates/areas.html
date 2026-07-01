@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="section-title">行政区划浏览</h1>
+<p class="subtle">按省、市、区县、乡镇街道浏览行政区划。点击任一区划可进入详情页，查看相关变更、关系三元组和局部知识图谱。</p>
+
+<section class="area-browser section-gap">
+  <div class="panel">
+    <h2>省级区划</h2>
+    <div id="provinceList" class="list"></div>
+  </div>
+  <div class="panel">
+    <h2>地市级区划</h2>
+    <div id="cityList" class="list"></div>
+  </div>
+  <div class="panel">
+    <h2>区县 / 乡镇街道</h2>
+    <div class="toolbar">
+      <input id="countySearch" placeholder="筛选名称或代码">
+      <button id="openSelected">查看选中区划</button>
+    </div>
+    <div id="countyList" class="list"></div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let selectedProvince = null;
+  let selectedCity = null;
+  let selectedArea = null;
+  let currentAreas = [];
+
+  function areaButton(area) {
+    return `<button data-code="${area.code}">
+      <strong>${escapeHTML(area.name)}</strong>
+      <span class="subtle"> ${escapeHTML(area.code)}</span>
+    </button>`;
+  }
+
+  function bindList(containerId, areas, onClick, options = {}) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = areas.length ? areas.map(areaButton).join('') : '<div class="empty">暂无下级区划</div>';
+    container.querySelectorAll('button').forEach(button => {
+      button.addEventListener('click', () => {
+        container.querySelectorAll('button').forEach(item => item.classList.remove('active'));
+        button.classList.add('active');
+        const area = areas.find(item => item.code === button.dataset.code);
+        onClick(area);
+      });
+      button.addEventListener('dblclick', () => {
+        location.href = withAppVersion(`/area/${encodeURIComponent(button.dataset.code)}`);
+      });
+    });
+    if (options.autoSelectFirst && areas[0]) {
+      const firstButton = container.querySelector('button');
+      if (firstButton) firstButton.click();
+    }
+  }
+
+  async function loadProvinces() {
+    const provinces = await getJSON('/api/areas/provinces');
+    bindList('provinceList', provinces, async area => {
+      selectedProvince = area;
+      selectedCity = null;
+      selectedArea = area;
+      document.getElementById('countySearch').value = '';
+      const cities = await getJSON(`/api/areas/children?code=${encodeURIComponent(area.code)}&levels=city,county`);
+      bindList('cityList', cities, loadLowerAreas, { autoSelectFirst: false });
+      currentAreas = [];
+      bindList('countyList', [], area => selectedArea = area);
+    }, { autoSelectFirst: true });
+  }
+
+  async function loadLowerAreas(area) {
+    selectedCity = area;
+    selectedArea = area;
+    document.getElementById('countySearch').value = '';
+    const levelQuery = area.level === 'county' ? 'town' : 'county';
+    currentAreas = await getJSON(`/api/areas/children?code=${encodeURIComponent(area.code)}&levels=${levelQuery}`);
+    bindList('countyList', currentAreas, area => selectedArea = area);
+  }
+
+  document.getElementById('countySearch').addEventListener('input', event => {
+    const keyword = event.target.value.trim();
+    const filtered = currentAreas.filter(area => area.name.includes(keyword) || area.code.includes(keyword));
+    bindList('countyList', filtered, area => selectedArea = area);
+  });
+
+  document.getElementById('openSelected').addEventListener('click', () => {
+    const target = selectedArea || selectedCity || selectedProvince;
+    if (target) location.href = withAppVersion(`/area/${encodeURIComponent(target.code)}`);
+  });
+
+  loadProvinces();
+</script>
+{% endblock %}

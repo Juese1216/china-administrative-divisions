@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if not area %}
+  <div class="panel">
+    <h1 class="section-title">未找到区划</h1>
+    <p class="subtle">区划代码 {{ code }} 不存在。</p>
+  </div>
+{% else %}
+  <section class="panel detail-header">
+    <div>
+      <h1 class="section-title">{{ area.name }}</h1>
+      <span class="badge">{{ area.level_name }}</span>
+      <span class="badge">{{ area.code }}</span>
+      <div class="path">{{ area.full_path }}</div>
+    </div>
+    <div class="detail-actions">
+      <a href="/graph?keyword={{ area.name }}">进入知识图谱</a>
+    </div>
+  </section>
+
+  <section id="areaMetrics" class="grid four section-gap"></section>
+
+  <section class="grid two section-gap">
+    <div class="panel">
+      <h2>相关局部知识图谱</h2>
+      <div id="areaGraph" class="chart large" data-chart="1"></div>
+      <div id="nodeInfo" class="node-panel subtle">点击图谱节点或边查看详情。</div>
+    </div>
+    <div class="panel">
+      <h2>下级区划</h2>
+      <div id="childrenTable"></div>
+    </div>
+  </section>
+
+  <section class="panel section-gap">
+    <h2>相关变更记录</h2>
+    <div id="changesTable"></div>
+  </section>
+
+  <section class="panel section-gap">
+    <h2>相关关系三元组</h2>
+    <div id="relationsTable"></div>
+  </section>
+
+  <section class="panel section-gap">
+    <h2>相关 NER 实体</h2>
+    <div id="entitiesTable"></div>
+  </section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if area %}
+<script>
+  const areaCode = '{{ area.code }}';
+
+  function drawAreaMetrics(summary) {
+    const items = [
+      ['下级区划', summary.children_count],
+      ['相关变更', summary.change_count],
+      ['相关关系', summary.relation_count],
+      ['相关实体', summary.entity_count]
+    ];
+    document.getElementById('areaMetrics').innerHTML = items.map(([label, value]) => `
+      <div class="panel metric">
+        <div class="label">${label}</div>
+        <div class="value">${Number(value || 0).toLocaleString()}</div>
+      </div>
+    `).join('');
+  }
+
+  function relationDisplayYear(data) {
+    if (data.year) return data.year;
+    return data.relation === '下辖' ? '2026' : '';
+  }
+
+  function relationDisplayEvidence(data) {
+    if (data.evidence) return data.evidence;
+    return data.relation === '下辖' ? '2026年国家行政区划编码表' : '';
+  }
+
+  function drawGraph(graph) {
+    const el = document.getElementById('areaGraph');
+    const chart = echarts.init(el);
+    el._chart = chart;
+    chart.setOption({
+      tooltip: {
+        formatter: params => params.dataType === 'edge'
+          ? `${escapeHTML(params.data.source)} → ${escapeHTML(params.data.target)}<br>${escapeHTML(params.data.name || '')}`
+          : escapeHTML(params.data.name)
+      },
+      legend: [{ data: graph.categories.map(item => item.name), bottom: 0 }],
+      series: [{
+        type: 'graph',
+        layout: 'force',
+        roam: true,
+        categories: graph.categories,
+        data: graph.nodes,
+        links: graph.links.map(link => ({ ...link, value: link.relation })),
+        label: { show: true, formatter: '{b}', fontSize: 10 },
+        edgeLabel: { show: true, formatter: '{c}', fontSize: 10 },
+        edgeSymbol: ['none', 'arrow'],
+        force: { repulsion: 560, edgeLength: 150 },
+        lineStyle: { color: '#687386', width: 1.5, curveness: 0.08 }
+      }]
+    });
+    chart.on('click', params => {
+      if (params.dataType === 'node') {
+        const code = params.data.area_code;
+        document.getElementById('nodeInfo').innerHTML = code
+          ? `节点：${escapeHTML(params.data.name)}，<a href="${withAppVersion(`/area/${encodeURIComponent(code)}`)}">进入区划详情</a>`
+          : `节点：${escapeHTML(params.data.name)}，暂无区划代码匹配。`;
+      } else if (params.dataType === 'edge') {
+        document.getElementById('nodeInfo').innerHTML = `
+          关系：${escapeHTML(params.data.source)} → ${escapeHTML(params.data.target)}，
+          类型：${escapeHTML(params.data.relation)}，
+          年份：${escapeHTML(relationDisplayYear(params.data))}<br>
+          证据：${escapeHTML(relationDisplayEvidence(params.data))}
+        `;
+      }
+    });
+  }
+
+  async function init() {
+    const payload = await getJSON(`/api/area/${encodeURIComponent(areaCode)}`);
+    const relationTypeLabel = appVersionIsSemantic() ? '语义大类' : '关系类型';
+    const relationTypeField = appVersionIsSemantic() ? 'semantic_relation_type_labels' : 'relation_type_labels';
+    const relationPrimaryField = appVersionIsSemantic() ? 'semantic_primary_relation_type' : 'primary_relation_type';
+    drawAreaMetrics(payload.summary);
+    drawGraph(payload.graph);
+    renderTable('childrenTable', payload.children, [
+      { label: '代码', key: 'code', render: row => linkArea(row.code, row.code) },
+      { label: '名称', key: 'name', render: row => linkArea(row.code, row.name) },
+      { label: '层级', key: 'level_name' }
+    ]);
+    renderTable('changesTable', payload.changes, [
+      { label: '记录编号', key: 'event_id' },
+      { label: '年份', key: 'year', render: row => `<a href="/forecast?year=${row.year}">${row.year}</a>` },
+      { label: '类型', key: 'title' },
+      { label: '内容', key: 'content' }
+    ]);
+    renderTable('relationsTable', payload.relations, [
+      { label: '记录编号', key: 'event_id' },
+      { label: '主体', key: 'subject', render: row => relationSearchLink(row.subject) },
+      { label: '关系', key: 'relation', render: row => `<a href="/relations?relation=${encodeURIComponent(row.relation)}">${escapeHTML(row.relation)}</a>` },
+      {
+        label: relationTypeLabel,
+        key: relationTypeField,
+        render: row => {
+          const typeName = row[relationPrimaryField] || row[relationTypeField] || '';
+          return typeName
+            ? `<a href="/relations?type=${encodeURIComponent(typeName)}">${escapeHTML(row[relationTypeField] || '')}</a>`
+            : '';
+        }
+      },
+      { label: '客体', key: 'object', render: row => relationSearchLink(row.object) },
+      { label: '年份', key: 'year' },
+      { label: '证据', key: 'evidence' }
+    ]);
+    renderTable('entitiesTable', payload.entities, [
+      { label: '句子编号', key: 'event_id' },
+      { label: '实体', key: 'entity_text' },
+      { label: '类型', key: 'entity_type' },
+      { label: '置信度', key: 'confidence', render: row => formatNumber(row.confidence) },
+      { label: '方法', key: 'method' }
+    ]);
+  }
+  init();
+</script>
+{% endif %}
+{% endblock %}

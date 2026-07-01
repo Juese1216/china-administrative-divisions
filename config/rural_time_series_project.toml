@@ -1,0 +1,41 @@
+[project]
+name = "china_town_village_time_atlas"
+observed_start_year = 1999
+baseline_year = 2026
+forecast_start_year = 2027
+forecast_end_year = 2035
+
+[metrics.population]
+label = "Population"
+weight = 0.35
+nonnegative = true
+description = "Resident population or gridded population allocated to each unit."
+
+[metrics.nightlight]
+label = "Nighttime light"
+weight = 0.35
+nonnegative = true
+description = "Annual stable nighttime light intensity."
+
+[metrics.builtup_area]
+label = "Built-up area"
+weight = 0.30
+nonnegative = true
+description = "Built-up land area in square kilometers."
+
+[forecast]
+method = "damped_huber_log_trend"
+damping = 0.90
+max_abs_log_growth_per_year = 0.20
+min_points_for_trend = 4
+prediction_interval_z = 1.96
+use_interpolated_for_forecast = false
+
+[atlas]
+default_color_column = "change_intensity_index"
+default_size_column = "vitality_index"
+map_style = "carto-positron"
+center_lat = 35.0
+center_lon = 104.0
+zoom = 3.2
+

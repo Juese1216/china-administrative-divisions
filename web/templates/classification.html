@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="section-title">变更类型分类</h1>
+<p class="subtle">展示每条行政区划变更记录的分类结果，并包含小样本分类器的验证信息。</p>
+
+<section id="modelMetrics" class="grid three section-gap"></section>
+
+<section class="grid two section-gap">
+  <div class="panel">
+    <h2 id="barTitle">13类关系数量</h2>
+    <div id="barChart" class="chart" data-chart="1"></div>
+  </div>
+  <div class="panel">
+    <h2 id="pieTitle">13类关系占比</h2>
+    <div id="pieChart" class="chart" data-chart="1"></div>
+  </div>
+</section>
+
+<section class="panel section-gap">
+  <h2>分类记录</h2>
+  <div class="toolbar">
+    <select id="changeType"><option value="">全部13类关系</option></select>
+    <input id="year" placeholder="年份">
+    <button id="filterButton">查询</button>
+  </div>
+  <div id="classTable"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const pageParams = new URLSearchParams(location.search);
+  const currentView = APP_VERSION;
+  let initialType = pageParams.get('type') || '';
+
+  const viewLabels = {
+    semantic: {
+      barTitle: '语义大类数量',
+      pieTitle: '语义大类占比',
+      allOption: '全部语义大类',
+      typeColumn: '语义大类',
+      chartColor: '#e45756'
+    },
+    detail: {
+      barTitle: '13类关系数量',
+      pieTitle: '13类关系占比',
+      allOption: '全部13类关系',
+      typeColumn: '13类关系',
+      chartColor: '#4c78a8'
+    }
+  };
+
+  function currentLabels() {
+    return viewLabels[currentView] || viewLabels.detail;
+  }
+
+  function updateViewControls() {
+    const labels = currentLabels();
+    document.getElementById('barTitle').textContent = labels.barTitle;
+    document.getElementById('pieTitle').textContent = labels.pieTitle;
+  }
+
+  function updateUrlState() {
+    const params = new URLSearchParams();
+    params.set('version', currentView);
+    const type = document.getElementById('changeType').value;
+    const year = document.getElementById('year').value.trim();
+    if (type) params.set('type', type);
+    if (year) params.set('year', year);
+    history.replaceState(null, '', `${location.pathname}?${params.toString()}`);
+  }
+
+  function drawModelMetrics(evaluation) {
+    const items = [
+      ['训练样本', evaluation.training_sample_count],
+      ['测试样本', evaluation.test_sample_count],
+      ['完全匹配率', evaluation.exact_match_accuracy ?? evaluation.accuracy],
+      ['标签准确率', evaluation.label_accuracy],
+      ['Micro-F1', evaluation.micro_f1]
+    ];
+    document.getElementById('modelMetrics').innerHTML = items.map(([label, value]) => `
+      <div class="panel metric">
+        <div class="label">${label}</div>
+        <div class="value">${formatNumber(value)}</div>
+      </div>
+    `).join('');
+  }
+
+  function populateSelect(distribution) {
+    const labels = currentLabels();
+    const select = document.getElementById('changeType');
+    const current = select.value || initialType;
+    const names = Object.entries(distribution).sort((a, b) => b[1] - a[1]).map(item => item[0]);
+    select.innerHTML = `<option value="">${labels.allOption}</option>` + names
+      .map(name => `<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`).join('');
+    select.value = current;
+  }
+
+  function drawCharts(distribution) {
+    const labels = currentLabels();
+    const entries = Object.entries(distribution).sort((a, b) => b[1] - a[1]);
+    const bar = echarts.init(document.getElementById('barChart'));
+    document.getElementById('barChart')._chart = bar;
+    bar.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: 128, right: 24, top: 28, bottom: 34 },
+      xAxis: { type: 'value' },
+      yAxis: { type: 'category', data: entries.map(item => item[0]).reverse() },
+      series: [{ type: 'bar', data: entries.map(item => item[1]).reverse(), itemStyle: { color: labels.chartColor } }]
+    });
+    bar.off('click');
+    bar.on('click', params => {
+      document.getElementById('changeType').value = params.name;
+      loadClassifications();
+    });
+
+    const pie = echarts.init(document.getElementById('pieChart'));
+    document.getElementById('pieChart')._chart = pie;
+    pie.setOption({
+      tooltip: { trigger: 'item' },
+      legend: { bottom: 0 },
+      series: [{
+        type: 'pie',
+        radius: ['34%', '66%'],
+        center: ['50%', '43%'],
+        data: entries.map(([name, value]) => ({ name, value }))
+      }]
+    });
+    pie.off('click');
+    pie.on('click', params => {
+      document.getElementById('changeType').value = params.name;
+      loadClassifications();
+    });
+  }
+
+  async function loadClassifications() {
+    const params = new URLSearchParams();
+    const type = document.getElementById('changeType').value;
+    const year = document.getElementById('year').value.trim();
+    params.set('version', currentView);
+    if (type) params.set('type', type);
+    if (year) params.set('year', year);
+    params.set('limit', '0');
+    const payload = await getJSON(`/api/classifications?${params.toString()}`);
+    if (!type && !year) populateSelect(payload.distribution);
+    drawModelMetrics(payload.evaluation || {});
+    drawCharts(payload.distribution);
+    const labels = currentLabels();
+    const columns = [
+      { label: '记录编号', key: 'event_id' },
+      { label: '年份', key: 'year', render: row => `<a href="/forecast?year=${row.year}">${row.year}</a>` },
+      { label: labels.typeColumn, key: 'change_type' }
+    ];
+    if (currentView === 'semantic') {
+      columns.push({ label: '13类来源', key: 'original_change_type' });
+    }
+    columns.push(
+      { label: '置信度', key: 'confidence', render: row => formatNumber(row.confidence) },
+      { label: '方法', key: 'method' },
+      { label: '依据', key: 'evidence' },
+      { label: '文本', key: 'record_text' }
+    );
+    renderTable('classTable', payload.records, columns);
+    updateUrlState();
+  }
+
+  async function initClassificationPage() {
+    updateViewControls();
+    const params = new URLSearchParams({ version: currentView, limit: '1' });
+    const allPayload = await getJSON(`/api/classifications?${params.toString()}`);
+    populateSelect(allPayload.distribution);
+    document.getElementById('changeType').value = initialType;
+    await loadClassifications();
+  }
+
+  document.getElementById('filterButton').addEventListener('click', loadClassifications);
+  initClassificationPage();
+</script>
+{% endblock %}

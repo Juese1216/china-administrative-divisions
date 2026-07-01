@@ -1,0 +1,20 @@
+{
+  "created_at": "2026-06-27T00:43:02.520210+00:00",
+  "country": "China",
+  "start_year": 1999,
+  "end_year": 2025,
+  "source": "World Bank API",
+  "indicators": {
+    "gdp_current_lcu": {
+      "code": "NY.GDP.MKTP.CN",
+      "name": "GDP（现价本币）",
+      "url": "https://data.worldbank.org/indicator/NY.GDP.MKTP.CN?locations=CN"
+    },
+    "population_total": {
+      "code": "SP.POP.TOTL",
+      "name": "总人口",
+      "url": "https://data.worldbank.org/indicator/SP.POP.TOTL?locations=CN"
+    }
+  },
+  "note": "GDP 和人口用于时序预测的外部回归因子。若某年 API 尚未发布数据，CSV 中会保留空值，由预测脚本自动估计。"
+}

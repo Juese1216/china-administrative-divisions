@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="section-title">关系抽取</h1>
+<p class="subtle">展示基于规则抽取出的动态变更三元组。点击主体、客体或关系类型可继续钻取。</p>
+
+<section class="grid two section-gap">
+  <div class="panel">
+    <h2 id="relationChartTitle">13类关系分布</h2>
+    <div id="relationChart" class="chart" data-chart="1"></div>
+  </div>
+  <div class="panel filter-panel">
+    <h2>筛选</h2>
+    <div class="toolbar filter-controls">
+      <select id="relationType"><option value="">全部13类关系</option></select>
+      <input id="keyword" placeholder="主体/客体/证据关键词">
+      <input id="year" placeholder="年份">
+      <button id="filterButton">查询</button>
+      <button id="prevFilterButton" class="secondary" disabled>上一步</button>
+      <button id="clearFilterButton" class="secondary">清空筛选</button>
+    </div>
+    <div id="filterSummary" class="filter-summary"></div>
+  </div>
+</section>
+
+<section class="panel section-gap">
+  <h2>关系三元组</h2>
+  <div id="relationsTable"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const pageParams = new URLSearchParams(location.search);
+  const currentView = APP_VERSION;
+  let initialRelation = pageParams.get('type') || pageParams.get('relation') || '';
+  const initialPredicate = pageParams.get('predicate') || '';
+  const initialKeyword = pageParams.get('keyword') || '';
+  let baseDistribution = {};
+  let filterHistory = [];
+  let predicateFilter = initialPredicate;
+  let lastAppliedFilter = { relation: '', predicate: '', keyword: '', year: '' };
+
+  const relationViewLabels = {
+    semantic: {
+      chartTitle: '语义大类分布',
+      allOption: '全部语义大类',
+      typeLabel: '语义大类',
+      field: 'semantic_relation_type_labels',
+      primaryField: 'semantic_primary_relation_type'
+    },
+    detail: {
+      chartTitle: '13类关系分布',
+      allOption: '全部13类关系',
+      typeLabel: '13类关系',
+      field: 'relation_type_labels',
+      primaryField: 'primary_relation_type'
+    }
+  };
+
+  function currentRelationLabels() {
+    return relationViewLabels[currentView] || relationViewLabels.detail;
+  }
+
+  function updateViewControls() {
+    const labels = currentRelationLabels();
+    document.getElementById('relationChartTitle').textContent = labels.chartTitle;
+  }
+
+  function updateUrlState() {
+    const state = readFilterInputs();
+    const params = new URLSearchParams();
+    params.set('version', currentView);
+    if (state.relation) params.set('type', state.relation);
+    if (state.predicate) params.set('predicate', state.predicate);
+    if (state.keyword) params.set('keyword', state.keyword);
+    if (state.year) params.set('year', state.year);
+    history.replaceState(null, '', `${location.pathname}?${params.toString()}`);
+  }
+
+  function readFilterInputs() {
+    return {
+      relation: document.getElementById('relationType').value,
+      predicate: predicateFilter,
+      keyword: document.getElementById('keyword').value.trim(),
+      year: document.getElementById('year').value.trim()
+    };
+  }
+
+  function setFilterInputs(state) {
+    document.getElementById('relationType').value = state.relation || '';
+    predicateFilter = state.predicate || '';
+    document.getElementById('keyword').value = state.keyword || '';
+    document.getElementById('year').value = state.year || '';
+  }
+
+  function sameFilterState(a, b) {
+    return (a?.relation || '') === (b?.relation || '')
+      && (a?.predicate || '') === (b?.predicate || '')
+      && (a?.keyword || '') === (b?.keyword || '')
+      && (a?.year || '') === (b?.year || '');
+  }
+
+  function rememberAppliedFilter() {
+    if (!sameFilterState(lastAppliedFilter, readFilterInputs())) {
+      filterHistory.push({ ...lastAppliedFilter });
+    } else if (!filterHistory.length || !sameFilterState(filterHistory[filterHistory.length - 1], lastAppliedFilter)) {
+      filterHistory.push({ ...lastAppliedFilter });
+    }
+    updateFilterButtons();
+  }
+
+  function updateFilterButtons() {
+    document.getElementById('prevFilterButton').disabled = filterHistory.length === 0;
+  }
+
+  function drawRelationChart(distribution, selectedRelation = '') {
+    const entries = Object.entries(distribution).sort((a, b) => b[1] - a[1]);
+    const chart = echarts.init(document.getElementById('relationChart'));
+    document.getElementById('relationChart')._chart = chart;
+    const reversed = entries.slice().reverse();
+    chart.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: 128, right: 24, top: 28, bottom: 34 },
+      xAxis: { type: 'value' },
+      yAxis: { type: 'category', data: reversed.map(item => item[0]) },
+      series: [{
+        type: 'bar',
+        data: reversed.map(([name, value]) => ({
+          value,
+          itemStyle: { color: name === selectedRelation ? '#2f6fed' : '#4c78a8' }
+        }))
+      }]
+    });
+    chart.off('click');
+    chart.on('click', params => {
+      const current = readFilterInputs();
+      rememberAppliedFilter();
+      document.getElementById('relationType').value = current.relation === params.name ? '' : params.name;
+      loadRelations();
+    });
+  }
+
+  function populateRelationSelect(distribution) {
+    const labels = currentRelationLabels();
+    const select = document.getElementById('relationType');
+    const current = select.value || initialRelation;
+    const names = Object.entries(distribution).sort((a, b) => b[1] - a[1]).map(item => item[0]);
+    select.innerHTML = `<option value="">${labels.allOption}</option>` + names
+      .map(name => `<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`).join('');
+    select.value = current;
+  }
+
+  function renderFilterSummary(payload, state) {
+    const labels = currentRelationLabels();
+    const relationLabel = state.relation || labels.allOption;
+    const predicateLabel = state.predicate || '未限定';
+    const keywordLabel = state.keyword || '未限定';
+    const yearLabel = state.year || '全部年份';
+    const recordCount = Number(payload.records?.length || 0).toLocaleString();
+    const typeCount = Object.keys(baseDistribution).length || Object.keys(payload.distribution || {}).length;
+    document.getElementById('filterSummary').innerHTML = `
+      <div class="filter-summary-item"><span>${escapeHTML(labels.typeLabel)}</span><strong>${escapeHTML(relationLabel)}</strong></div>
+      <div class="filter-summary-item"><span>关系谓词</span><strong>${escapeHTML(predicateLabel)}</strong></div>
+      <div class="filter-summary-item"><span>关键词</span><strong>${escapeHTML(keywordLabel)}</strong></div>
+      <div class="filter-summary-item"><span>年份</span><strong>${escapeHTML(yearLabel)}</strong></div>
+      <div class="filter-summary-item"><span>表格记录</span><strong>${recordCount} 条</strong></div>
+      <div class="filter-summary-item"><span>${escapeHTML(labels.typeLabel)}</span><strong>${Number(typeCount || 0).toLocaleString()} 类</strong></div>
+    `;
+  }
+
+  async function loadRelations(forceReloadDistribution = false) {
+    const params = new URLSearchParams();
+    const state = readFilterInputs();
+    params.set('version', currentView);
+    if (state.relation) params.set('type', state.relation);
+    if (state.predicate) params.set('predicate', state.predicate);
+    if (state.keyword) params.set('keyword', state.keyword);
+    if (state.year) params.set('year', state.year);
+    params.set('limit', '0');
+    const payload = await getJSON(`/api/relations?${params.toString()}`);
+    if (forceReloadDistribution || !Object.keys(baseDistribution).length) {
+      const allPayload = await getJSON(`/api/relations?version=${encodeURIComponent(currentView)}&limit=1`);
+      baseDistribution = allPayload.distribution || {};
+      populateRelationSelect(baseDistribution);
+    }
+    const labels = currentRelationLabels();
+    const chartDistribution = Object.keys(baseDistribution).length ? baseDistribution : payload.distribution;
+    drawRelationChart(chartDistribution, state.relation);
+    renderFilterSummary(payload, state);
+    lastAppliedFilter = { ...state };
+    updateFilterButtons();
+    renderTable('relationsTable', payload.records, [
+      { label: '记录编号', key: 'event_id' },
+      { label: '主体', key: 'subject', render: row => relationSearchLink(row.subject) },
+      {
+        label: labels.typeLabel,
+        key: labels.field,
+        render: row => {
+          const typeName = row[labels.primaryField] || row[labels.field] || '';
+          return `<a href="/relations?type=${encodeURIComponent(typeName)}">${escapeHTML(row[labels.field] || '')}</a>`;
+        }
+      },
+      { label: '关系谓词', key: 'relation', render: row => `<a href="/relations?predicate=${encodeURIComponent(row.relation)}">${escapeHTML(row.relation)}</a>` },
+      { label: '客体', key: 'object', render: row => relationSearchLink(row.object) },
+      { label: '年份', key: 'year', render: row => `<a href="/forecast?year=${row.year}">${row.year}</a>` },
+      { label: '置信度', key: 'confidence', render: row => formatNumber(row.confidence) },
+      { label: '证据', key: 'evidence' }
+    ]);
+    updateUrlState();
+  }
+
+  async function initRelationsPage() {
+    updateViewControls();
+    const allPayload = await getJSON(`/api/relations?version=${encodeURIComponent(currentView)}&limit=1`);
+    baseDistribution = allPayload.distribution || {};
+    populateRelationSelect(baseDistribution);
+    if (initialRelation && baseDistribution[initialRelation]) {
+      document.getElementById('relationType').value = initialRelation;
+    } else if (initialRelation && !predicateFilter) {
+      predicateFilter = initialRelation;
+      document.getElementById('relationType').value = '';
+    }
+    document.getElementById('keyword').value = initialKeyword;
+    await loadRelations();
+  }
+
+  document.getElementById('filterButton').addEventListener('click', () => {
+    rememberAppliedFilter();
+    loadRelations();
+  });
+  document.getElementById('clearFilterButton').addEventListener('click', () => {
+    rememberAppliedFilter();
+    setFilterInputs({ relation: '', predicate: '', keyword: '', year: '' });
+    loadRelations();
+  });
+  document.getElementById('prevFilterButton').addEventListener('click', () => {
+    const previous = filterHistory.pop();
+    if (!previous) return;
+    setFilterInputs(previous);
+    loadRelations();
+  });
+  document.getElementById('keyword').addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      rememberAppliedFilter();
+      loadRelations();
+    }
+  });
+  initRelationsPage();
+</script>
+{% endblock %}

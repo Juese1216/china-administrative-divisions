@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} - 国家行政区划与历史变更信息管理系统</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script src="{{ url_for('static', filename='vendor/echarts.min.js') }}"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">国家行政区划与历史变更信息管理系统</a>
+    <div class="topbar-right">
+      <nav class="nav">
+        <a class="{{ 'active' if active == 'dashboard' else '' }}" href="/">首页</a>
+        <a class="{{ 'active' if active == 'areas' else '' }}" href="/areas">行政区划浏览</a>
+        <a class="{{ 'active' if active == 'graph' else '' }}" href="/graph">知识图谱</a>
+        <a class="{{ 'active' if active == 'ner' else '' }}" href="/ner">NER 实体识别</a>
+        <a class="{{ 'active' if active == 'relations' else '' }}" href="/relations">关系抽取</a>
+        <a class="{{ 'active' if active == 'classification' else '' }}" href="/classification">变更分类</a>
+        <a class="{{ 'active' if active == 'forecast' else '' }}" href="/forecast">时序预测</a>
+        <a class="{{ 'active' if active == 'forecast_v2' else '' }}" href="/forecast-v2">自然村预测</a>
+      </nav>
+      <div class="version-switcher" id="versionSwitcher">
+        <button class="version-button" id="versionButton" type="button" aria-haspopup="menu" aria-expanded="false">
+          版本：<span id="versionLabel">13类细粒度版</span>
+        </button>
+        <div class="version-menu" role="menu" aria-labelledby="versionButton">
+          {% for option in app_version_options %}
+            <button class="version-option" type="button" role="menuitem" data-version="{{ option.id }}">
+              {{ option.label }}
+            </button>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    const APP_VERSION_OPTIONS = {{ app_version_options|tojson }};
+    const DEFAULT_APP_VERSION = 'detail';
+    const VERSION_STORAGE_KEY = 'division-system-version';
+
+    function normalizeAppVersion(value) {
+      const text = String(value || '').trim().toLowerCase();
+      return ['semantic', 'sem', 'aggregate', 'aggregation'].includes(text) ? 'semantic' : 'detail';
+    }
+
+    function initialAppVersion() {
+      const params = new URLSearchParams(location.search);
+      const queryValue = params.get('version') || params.get('view');
+      if (queryValue) return normalizeAppVersion(queryValue);
+      try {
+        return normalizeAppVersion(localStorage.getItem(VERSION_STORAGE_KEY) || DEFAULT_APP_VERSION);
+      } catch {
+        return DEFAULT_APP_VERSION;
+      }
+    }
+
+    const APP_VERSION = initialAppVersion();
+    window.APP_VERSION = APP_VERSION;
+
+    function appVersionOption(version = APP_VERSION) {
+      return APP_VERSION_OPTIONS.find(item => item.id === version) || APP_VERSION_OPTIONS[0];
+    }
+
+    function appVersionLabel(version = APP_VERSION) {
+      return appVersionOption(version).label;
+    }
+
+    function appVersionIsSemantic() {
+      return APP_VERSION === 'semantic';
+    }
+
+    function withAppVersion(url, extraParams = {}) {
+      const target = new URL(url, location.origin);
+      target.searchParams.set('version', APP_VERSION);
+      target.searchParams.delete('view');
+      Object.entries(extraParams).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          target.searchParams.set(key, value);
+        }
+      });
+      return `${target.pathname}${target.search}${target.hash}`;
+    }
+
+    function apiURL(url, extraParams = {}) {
+      return withAppVersion(url, extraParams);
+    }
+
+    function applyVersionToLinks(root = document) {
+      root.querySelectorAll('a[href^="/"]').forEach(link => {
+        const href = link.getAttribute('href') || '';
+        if (!href || href.startsWith('/artifacts/') || href.includes('version=')) return;
+        link.setAttribute('href', withAppVersion(href));
+      });
+    }
+
+    function setVersionMenuState(open) {
+      const switcher = document.getElementById('versionSwitcher');
+      const button = document.getElementById('versionButton');
+      switcher.classList.toggle('open', open);
+      button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    function switchAppVersion(version) {
+      const nextVersion = normalizeAppVersion(version);
+      try {
+        localStorage.setItem(VERSION_STORAGE_KEY, nextVersion);
+      } catch {
+        // Ignore storage failures; the URL still carries the selected version.
+      }
+      const target = new URL(location.href);
+      target.searchParams.set('version', nextVersion);
+      target.searchParams.delete('view');
+      location.href = `${target.pathname}${target.search}${target.hash}`;
+    }
+
+    function initVersionSwitcher() {
+      const label = document.getElementById('versionLabel');
+      const button = document.getElementById('versionButton');
+      const switcher = document.getElementById('versionSwitcher');
+      label.textContent = appVersionLabel();
+      document.querySelectorAll('.version-option').forEach(option => {
+        const active = normalizeAppVersion(option.dataset.version) === APP_VERSION;
+        option.classList.toggle('active', active);
+        option.setAttribute('aria-current', active ? 'true' : 'false');
+        option.addEventListener('click', () => switchAppVersion(option.dataset.version));
+      });
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        setVersionMenuState(!switcher.classList.contains('open'));
+      });
+      document.addEventListener('click', event => {
+        if (!switcher.contains(event.target)) setVersionMenuState(false);
+      });
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') setVersionMenuState(false);
+      });
+      applyVersionToLinks();
+    }
+
+    async function getJSON(url) {
+      const response = await fetch(apiURL(url));
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    }
+
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[char]));
+    }
+
+    const tableStates = {};
+
+    function renderTable(containerId, rows, columns, emptyText = '暂无数据', options = {}) {
+      const container = document.getElementById(containerId);
+      if (!rows || rows.length === 0) {
+        container.innerHTML = `<div class="empty">${emptyText}</div>`;
+        return;
+      }
+      const state = tableStates[containerId] || {};
+      const rowsChanged = state.rows !== rows;
+      const requestedPageSize = Number(options.pageSize || state.pageSize || 20);
+      const pageSize = [10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
+      const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+      const page = rowsChanged ? 1 : Math.min(Math.max(Number(state.page || 1), 1), totalPages);
+      tableStates[containerId] = { rows, columns, emptyText, options, page, pageSize };
+
+      const start = (page - 1) * pageSize;
+      const currentRows = rows.slice(start, start + pageSize);
+      const header = columns.map(col => `<th>${escapeHTML(col.label)}</th>`).join('');
+      const body = currentRows.map(row => {
+        const cells = columns.map(col => {
+          const raw = typeof col.render === 'function' ? col.render(row) : row[col.key];
+          return `<td>${raw ?? ''}</td>`;
+        }).join('');
+        return `<tr>${cells}</tr>`;
+      }).join('');
+      container.innerHTML = `
+        <div class="table-toolbar">
+          <span>共 ${rows.length.toLocaleString()} 条</span>
+          <label>每页
+            <select data-table-size="${containerId}">
+              ${[10, 20, 50, 100].map(size => `<option value="${size}" ${size === pageSize ? 'selected' : ''}>${size}</option>`).join('')}
+            </select>
+          </label>
+          <span>第 ${page} / ${totalPages} 页</span>
+          <div class="pagination">
+            <button data-table-page="${containerId}" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+            <button data-table-page="${containerId}" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>
+        </div>
+      `;
+      applyVersionToLinks(container);
+      container.querySelectorAll(`[data-table-page="${containerId}"]`).forEach(button => {
+        button.addEventListener('click', () => {
+          tableStates[containerId].page = Number(button.dataset.page);
+          renderTable(containerId, rows, columns, emptyText, options);
+        });
+      });
+      container.querySelector(`[data-table-size="${containerId}"]`).addEventListener('change', event => {
+        tableStates[containerId].page = 1;
+        tableStates[containerId].pageSize = Number(event.target.value);
+        renderTable(containerId, rows, columns, emptyText, options);
+      });
+    }
+
+    function linkArea(code, name) {
+      if (!code) return escapeHTML(name);
+      return `<a href="${withAppVersion(`/area/${encodeURIComponent(code)}`)}">${escapeHTML(name)}</a>`;
+    }
+
+    function relationSearchLink(value) {
+      return `<a href="${withAppVersion('/relations', { keyword: value })}">${escapeHTML(value)}</a>`;
+    }
+
+    function formatNumber(value) {
+      if (value === null || value === undefined || value === '') return '';
+      const number = Number(value);
+      if (Number.isNaN(number)) return escapeHTML(value);
+      return Number.isInteger(number) ? number.toLocaleString() : number.toFixed(2);
+    }
+
+    function resizeCharts() {
+      document.querySelectorAll('[data-chart="1"]').forEach(el => {
+        if (el._chart) el._chart.resize();
+      });
+    }
+    window.addEventListener('resize', resizeCharts);
+    initVersionSwitcher();
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

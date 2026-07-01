@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="section-title">自然村预测</h1>
+<p class="subtle">整合乡镇街道数量、自然村数量和人口外部回归因子，作为本次作业的第二版时序预测展示。</p>
+
+<section class="panel section-gap">
+  <div class="toolbar">
+    <select id="province"></select>
+    <button id="loadButton">切换省份</button>
+    <a class="button-link" href="/artifacts/rural/quantity_atlas/数量变化图谱.html" target="_blank">数量变化图谱</a>
+  </div>
+</section>
+
+<section class="panel section-gap">
+  <h2>省级乡镇街道数量与人口因子</h2>
+  <div id="provinceChart" class="chart large" data-chart="1"></div>
+</section>
+
+<section class="grid two section-gap">
+  <div class="panel">
+    <h2>全国乡级行政区划数量</h2>
+    <div id="nationalChart" class="chart" data-chart="1"></div>
+  </div>
+  <div class="panel">
+    <h2>全国自然村数量</h2>
+    <div id="naturalChart" class="chart" data-chart="1"></div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function populateProvinces(provinces, current) {
+    const select = document.getElementById('province');
+    select.innerHTML = provinces.map(name => `<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`).join('');
+    select.value = current;
+  }
+
+  function drawLine(id, rows, seriesDefs, yName = '数量', options = {}) {
+    const chart = echarts.init(document.getElementById(id));
+    document.getElementById(id)._chart = chart;
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { type: 'scroll', top: 4 },
+      grid: { left: 64, right: 24, top: 48, bottom: 42 },
+      xAxis: { type: 'category', data: rows.map(row => row.year) },
+      yAxis: {
+        type: 'value',
+        name: yName,
+        min: options.yMin,
+        max: options.yMax,
+        interval: options.yInterval,
+        splitNumber: options.ySplitNumber
+      },
+      series: seriesDefs.map(item => ({
+        name: item.name,
+        type: 'line',
+        smooth: true,
+        symbolSize: 5,
+        data: rows.map(row => row[item.key])
+      }))
+    });
+  }
+
+  function drawProvince(rows, province) {
+    const chart = echarts.init(document.getElementById('provinceChart'));
+    document.getElementById('provinceChart')._chart = chart;
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { type: 'scroll', top: 4 },
+      grid: { left: 64, right: 72, top: 50, bottom: 42 },
+      xAxis: { type: 'category', data: rows.map(row => row.year) },
+      yAxis: [
+        { type: 'value', name: '数量' },
+        { type: 'value', name: '人口(万人)' }
+      ],
+      series: [
+        { name: `${province}乡镇街道`, type: 'line', smooth: true, data: rows.map(row => row.township_street_count), lineStyle: { width: 3 } },
+        { name: '镇', type: 'line', smooth: true, data: rows.map(row => row.town_count) },
+        { name: '乡', type: 'line', smooth: true, data: rows.map(row => row.township_count) },
+        { name: '街道', type: 'line', smooth: true, data: rows.map(row => row.street_count) },
+        { name: '人口外部因子', type: 'line', yAxisIndex: 1, smooth: true, data: rows.map(row => Number(row.population_external || 0) / 10000), lineStyle: { type: 'dashed' } }
+      ]
+    });
+  }
+
+  async function loadRural() {
+    const province = document.getElementById('province').value || '北京市';
+    const payload = await getJSON(`/api/forecast/rural?province=${encodeURIComponent(province)}`);
+    if (!document.getElementById('province').children.length) populateProvinces(payload.provinces, payload.province);
+    drawLine('nationalChart', payload.national, [
+      { name: '乡镇街道合计', key: 'township_street_count' },
+      { name: '镇', key: 'town_count' },
+      { name: '乡', key: 'township_count' },
+      { name: '街道', key: 'street_count' }
+    ]);
+    drawLine('naturalChart', payload.natural, [
+      { name: '自然村数量', key: 'natural_village_count' }
+    ], '数量', { yMin: 2900000, yMax: 3300000, yInterval: 100000, ySplitNumber: 4 });
+    drawProvince(payload.province_series, payload.province);
+  }
+
+  document.getElementById('loadButton').addEventListener('click', loadRural);
+  loadRural();
+</script>
+{% endblock %}

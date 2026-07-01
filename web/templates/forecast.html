@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="section-title">时序预测</h1>
+<p class="subtle">按年聚合行政区划变更次数，并预测 2027 年之后未来 5 年趋势。2022 年民政部无变更记录，因此按 0 处理。</p>
+
+<section class="panel section-gap">
+  <div class="toolbar">
+    <select id="target"></select>
+    <select id="model"></select>
+    <button id="loadButton">切换预测对象</button>
+  </div>
+  <div id="forecastSummary" class="summary-strip"></div>
+  <div id="forecastChart" class="chart large" data-chart="1"></div>
+</section>
+
+<section class="grid two section-gap">
+  <div class="panel">
+    <h2>预测结果表</h2>
+    <div id="forecastTable"></div>
+  </div>
+  <div class="panel">
+    <h2 id="yearTitle">年份明细</h2>
+    <div id="yearTable" class="empty">点击折线图中的某一年查看该年变更记录。</div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const targetNames = { total_changes: '总变更数' };
+  const initialYear = new URLSearchParams(location.search).get('year') || '';
+  const initialTarget = new URLSearchParams(location.search).get('target') || 'total_changes';
+  const initialModel = new URLSearchParams(location.search).get('model') || 'chosen';
+  let modelOptions = [];
+  let currentModel = initialModel;
+
+  function targetLabel(target) {
+    return targetNames[target] || target;
+  }
+
+  function modelLabel(model) {
+    const option = modelOptions.find(item => item.id === model);
+    return option ? option.label : model;
+  }
+
+  function populateTargets(targets, current) {
+    const select = document.getElementById('target');
+    select.innerHTML = targets.map(target => `<option value="${escapeHTML(target)}">${escapeHTML(targetLabel(target))}</option>`).join('');
+    select.value = current;
+  }
+
+  function populateModels(options, current) {
+    modelOptions = options || [];
+    const select = document.getElementById('model');
+    select.innerHTML = modelOptions.map(option => `<option value="${escapeHTML(option.id)}">${escapeHTML(option.label)}</option>`).join('');
+    select.value = current;
+  }
+
+  function metricFor(metrics, model) {
+    if (!metrics) return null;
+    return metrics.find(item => item.model === model) || null;
+  }
+
+  function renderForecastSummary(payload) {
+    const overview = payload.overview || {};
+    const forecastRows = payload.series.filter(row => row.kind === 'forecast');
+    const firstForecast = forecastRows[0] || {};
+    const metric = metricFor(payload.metrics, firstForecast.model);
+    const featureText = overview.exogenous_feature_columns || '';
+    const items = [
+      { label: '预测对象', value: targetLabel(payload.target) },
+      { label: '预测版本', value: modelLabel(payload.model) },
+      { label: '首年预测', value: firstForecast.year ? `${firstForecast.year} 年 ${formatNumber(firstForecast.predicted)} 次` : '' },
+      { label: 'MAE / RMSE', value: metric ? `${formatNumber(metric.mae)} / ${formatNumber(metric.rmse)}` : '' },
+      { label: '外部因子', value: featureText ? featureText.split(' / ').map(name => name.replaceAll('_', ' ')).join(' / ') : '未使用' }
+    ];
+    document.getElementById('forecastSummary').innerHTML = items.map(item => `
+      <div class="summary-item">
+        <span>${escapeHTML(item.label)}</span>
+        <strong>${escapeHTML(item.value || '-')}</strong>
+      </div>
+    `).join('');
+  }
+
+  function drawForecast(series, model) {
+    const history = series.filter(row => row.kind === 'history');
+    const forecastRows = series.filter(row => row.kind === 'forecast');
+    const years = series.map(row => row.year);
+    const actualMap = new Map(history.map(row => [row.year, row.actual]));
+    const predictedMap = new Map(series.map(row => [row.year, row.predicted]));
+    const lowerMap = new Map(series.map(row => [row.year, row.predicted_lower]));
+    const upperMap = new Map(series.map(row => [row.year, row.predicted_upper]));
+    const exogenousMap = new Map(forecastRows.map(row => [row.year, row.exogenous_poisson]));
+    const linearMap = new Map(forecastRows.map(row => [row.year, row.linear_regression]));
+    const holtMap = new Map(forecastRows.map(row => [row.year, row.holt_winters]));
+    const chart = echarts.init(document.getElementById('forecastChart'));
+    document.getElementById('forecastChart')._chart = chart;
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { top: 4 },
+      grid: { left: 54, right: 24, top: 46, bottom: 42 },
+      xAxis: { type: 'category', data: years },
+      yAxis: { type: 'value', name: '次数' },
+      series: [
+        {
+          name: '历史实际值',
+          type: 'line',
+          symbolSize: 8,
+          data: years.map(year => actualMap.has(year) ? actualMap.get(year) : null)
+        },
+        {
+          name: `${modelLabel(model)}预测值`,
+          type: 'line',
+          symbolSize: 8,
+          data: years.map(year => predictedMap.get(year)),
+          itemStyle: { color: '#d62728' },
+          lineStyle: { width: 3, type: 'dashed' }
+        },
+        {
+          name: '外部因子 Poisson',
+          type: 'line',
+          symbolSize: 7,
+          data: years.map(year => exogenousMap.has(year) ? exogenousMap.get(year) : null),
+          itemStyle: { color: '#0f9f8f' },
+          lineStyle: { width: 2 }
+        },
+        {
+          name: 'Holt-Winters',
+          type: 'line',
+          symbol: 'none',
+          data: years.map(year => holtMap.has(year) ? holtMap.get(year) : null),
+          itemStyle: { color: '#687386' },
+          lineStyle: { width: 1.5, type: 'dotted' }
+        },
+        {
+          name: '线性回归',
+          type: 'line',
+          symbol: 'none',
+          data: years.map(year => linearMap.has(year) ? linearMap.get(year) : null),
+          itemStyle: { color: '#d9791f' },
+          lineStyle: { width: 1.5, type: 'dotted' }
+        },
+        {
+          name: '预测下界',
+          type: 'line',
+          data: years.map(year => lowerMap.get(year)),
+          lineStyle: { opacity: 0 },
+          stack: 'interval',
+          symbol: 'none'
+        },
+        {
+          name: '预测区间',
+          type: 'line',
+          data: years.map(year => Math.max(0, (upperMap.get(year) || 0) - (lowerMap.get(year) || 0))),
+          lineStyle: { opacity: 0 },
+          areaStyle: { color: '#d62728', opacity: 0.14 },
+          stack: 'interval',
+          symbol: 'none'
+        }
+      ]
+    });
+    chart.off('click');
+    chart.on('click', params => {
+      const year = Number(params.name);
+      if (year) loadYear(year);
+    });
+  }
+
+  async function loadForecast() {
+    const select = document.getElementById('target');
+    const modelSelect = document.getElementById('model');
+    const target = select.value || initialTarget || 'total_changes';
+    const model = modelSelect.value || currentModel || 'chosen';
+    const payload = await getJSON(`/api/forecast?target=${encodeURIComponent(target)}&model=${encodeURIComponent(model)}`);
+    if (!select.children.length) populateTargets(payload.targets, payload.target);
+    if (!modelSelect.children.length) populateModels(payload.model_options, payload.model);
+    currentModel = payload.model;
+    modelSelect.value = payload.model;
+    renderForecastSummary(payload);
+    drawForecast(payload.series, payload.model);
+    renderTable('forecastTable', payload.series, [
+      { label: '对象', key: 'target', render: row => escapeHTML(targetLabel(row.target)) },
+      { label: '年份', key: 'year', render: row => row.kind === 'history' ? `<a href="#" data-year="${row.year}">${row.year}</a>` : row.year },
+      { label: '类型', key: 'kind', render: row => row.kind === 'history' ? '历史' : '预测' },
+      { label: '版本', key: 'model', render: row => row.kind === 'history' ? '' : escapeHTML(modelLabel(row.model)) },
+      { label: '实际值', key: 'actual', render: row => formatNumber(row.actual) },
+      { label: '预测值', key: 'predicted', render: row => formatNumber(row.predicted) },
+      { label: '外部因子', key: 'exogenous_poisson', render: row => formatNumber(row.exogenous_poisson) },
+      { label: 'Holt-Winters', key: 'holt_winters', render: row => formatNumber(row.holt_winters) },
+      { label: '线性回归', key: 'linear_regression', render: row => formatNumber(row.linear_regression) },
+      { label: '下界', key: 'predicted_lower', render: row => formatNumber(row.predicted_lower) },
+      { label: '上界', key: 'predicted_upper', render: row => formatNumber(row.predicted_upper) }
+    ]);
+    document.querySelectorAll('[data-year]').forEach(link => {
+      link.addEventListener('click', event => {
+        event.preventDefault();
+        loadYear(Number(link.dataset.year));
+      });
+    });
+  }
+
+  async function loadYear(year) {
+    const payload = await getJSON(`/api/forecast/year/${year}`);
+    document.getElementById('yearTitle').textContent = `${year} 年变更记录`;
+    renderTable('yearTable', payload.events, [
+      { label: '记录编号', key: 'event_id' },
+      { label: '年份', key: 'year' },
+      { label: '类型', key: 'title' },
+      { label: '内容', key: 'content' }
+    ], `${year} 年无变更记录`);
+  }
+
+  document.getElementById('loadButton').addEventListener('click', loadForecast);
+  document.getElementById('target').addEventListener('change', loadForecast);
+  document.getElementById('model').addEventListener('change', loadForecast);
+  document.getElementById('forecastTable').addEventListener('click', event => {
+    const link = event.target.closest('[data-year]');
+    if (!link) return;
+    event.preventDefault();
+    loadYear(Number(link.dataset.year));
+  });
+  loadForecast().then(() => {
+    if (initialYear) loadYear(Number(initialYear));
+  });
+</script>
+{% endblock %}

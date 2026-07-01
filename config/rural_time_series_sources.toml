@@ -1,0 +1,101 @@
+# This catalog records recommended real data sources for the atlas.
+# It is metadata only; the pipeline never fabricates observations from this file.
+
+[[sources]]
+id = "nbs_urban_rural_codes"
+name = "National Bureau of Statistics statistical division and urban-rural classification codes"
+provider = "National Bureau of Statistics of China"
+url = "https://www.stats.gov.cn/zs/tjws/tjbz/202301/t20230101_1903381.html"
+coverage = "Township and village/community coding rules; historical yearly releases should be archived separately."
+recommended_use = "Township/village identifiers, parent-child relationships, urban-rural attributes."
+notes = "Use the original yearly code releases where available; keep one local archive per year."
+
+[[sources]]
+id = "mca_admin_codes"
+name = "Administrative division codes and national place-name service"
+provider = "Ministry of Civil Affairs of China"
+url = "https://www.mca.gov.cn/n156/n186/index.html"
+coverage = "Administrative division code announcements and latest official administrative names."
+recommended_use = "County-level administrative changes and latest name reconciliation."
+notes = "For current place-name queries, also use https://dmfw.mca.gov.cn/."
+
+[[sources]]
+id = "national_place_name_database"
+name = "China National Geographical Names Information Database"
+provider = "Ministry of Civil Affairs of China"
+url = "https://dmfw.mca.gov.cn/"
+coverage = "Current place names, settlements, natural-village clues, and administrative hierarchy."
+recommended_use = "Natural-village point/name verification and latest township/village names."
+notes = "Terms of use and export limits must be checked before bulk use."
+
+[[sources]]
+id = "nightlight_china_dmsp_like"
+name = "China-like DMSP-OLS annual nighttime light data"
+provider = "National Tibetan Plateau / Third Pole Environment Data Center or listed data publisher"
+url = "https://www.geodata.cn/data/datadetails.html?dataguid=54416522887785"
+coverage = "Annual nighttime light, commonly used for long-term 1990s-2020s comparisons."
+recommended_use = "Annual activity proxy for population/economic intensity."
+notes = "Download original rasters and record DOI/version/date in data/source_inventory.csv."
+
+[[sources]]
+id = "global_simulated_viirs_1992_2023"
+name = "Global annual simulated VIIRS nighttime light dataset"
+provider = "Chen et al., Scientific Data 2024"
+url = "https://www.nature.com/articles/s41597-024-04228-6"
+coverage = "Global annual 500 m simulated VIIRS-like nighttime light, 1992-2023."
+recommended_use = "Primary long-term nighttime light series for 1999-2023 when direct China-specific annual products are unavailable."
+notes = "Use original dataset download/DOI from the paper or GEE community catalog; validate 2012+ against official NOAA VIIRS."
+
+[[sources]]
+id = "noaa_viirs_annual_v22_gee"
+name = "VIIRS Nighttime Day/Night Annual Band Composites V2.2"
+provider = "NOAA / Earth Observation Group, exposed in Google Earth Engine"
+url = "https://developers.google.com/earth-engine/datasets/catalog/NOAA_VIIRS_DNB_ANNUAL_V22"
+coverage = "Global annual VIIRS nighttime lights, 2012-2024, with V2.2 covering newer years."
+recommended_use = "Near-recent official nighttime light validation and 2024 baseline support."
+notes = "Requires Google Earth Engine authentication for scripted export."
+
+[[sources]]
+id = "resdc_cnlucc"
+name = "China Multi-period Land Use/Land Cover Remote Sensing Monitoring Dataset (CNLUCC)"
+provider = "Resource and Environment Science and Data Center, Chinese Academy of Sciences"
+url = "https://www.resdc.cn/DOI/doi.aspx?DOIid=54"
+coverage = "Multi-period land-use/land-cover data, typically 1980-2020 intervals."
+recommended_use = "Built-up land area, construction land expansion, land-use transition."
+notes = "Not annual; interpolate only for visualization and label interpolated years clearly."
+
+[[sources]]
+id = "globeland30"
+name = "GlobeLand30 global land cover"
+provider = "National Geomatics Center of China"
+url = "https://www.webmap.cn/commres.do?method=globeIndex"
+coverage = "30 m global land cover around 2000, 2010, 2020."
+recommended_use = "Independent built-up land cross-check."
+notes = "Use as validation or substitute when CNLUCC is unavailable."
+
+[[sources]]
+id = "worldpop_china"
+name = "WorldPop gridded population - China"
+provider = "WorldPop, University of Southampton"
+url = "https://hub.worldpop.org/doi/10.5258/SOTON/WP00055"
+coverage = "High-resolution population grids for China."
+recommended_use = "Population allocation to grid/township/village-point buffers."
+notes = "Record constrained/unconstrained product and version."
+
+[[sources]]
+id = "ghsl_population_built"
+name = "Global Human Settlement Layer population and built-up grids"
+provider = "European Commission Joint Research Centre"
+url = "https://human-settlement.emergency.copernicus.eu/datasets.php"
+coverage = "Population and built-up grid products, including historical epochs and modelled future epochs."
+recommended_use = "Cross-check population and built-up trajectories; do not mix modelled future epochs with observed history."
+notes = "Treat 2030+ products as modelled references, not observed truth."
+
+[[sources]]
+id = "geofabrik_osm_china"
+name = "OpenStreetMap China extract"
+provider = "Geofabrik / OpenStreetMap contributors"
+url = "https://download.geofabrik.de/asia/china.html"
+coverage = "Roads, settlements, POI and village/place points where contributed."
+recommended_use = "Road accessibility, natural-village point supplement."
+notes = "Community data; validate against official place names where precision matters."

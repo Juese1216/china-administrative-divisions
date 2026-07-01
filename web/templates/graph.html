@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="section-title">知识图谱</h1>
+<p class="subtle">先查看全国母图谱，再搜索区划或实体查看局部关系网络。点击节点可进入区划详情，点击边可查看关系证据。</p>
+
+<section class="panel section-gap">
+  <div class="toolbar">
+    <input id="keyword" value="{{ keyword }}" placeholder="输入区划名称，如 通辽市、呈贡区、错那市">
+    <button id="searchButton">查询图谱</button>
+    <button id="overviewButton" class="secondary">全国母图谱</button>
+    <button id="resetGraphButton" class="secondary">恢复初始状态</button>
+  </div>
+  <div id="graphChart" class="chart large" data-chart="1"></div>
+  <div id="relationLegend" class="relation-legend"></div>
+  <div id="graphInfo" class="node-panel subtle">点击节点或边查看详情。</div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const initialKeyword = {{ keyword|tojson }};
+  const graphRelationColors = {
+    '下辖': '#8b98a9',
+    '变更为': '#dc4c4c',
+    '划归': '#f28e2b',
+    '隶属于': '#4e79a7',
+    '政府驻地': '#7b61d1',
+    '驻地迁至': '#14a3a0',
+    '直辖于': '#59a14f',
+    '代管于': '#9c755f',
+    '设立': '#2f6fed',
+    '撤销': '#b07aa1',
+    '合并为': '#edc948',
+    '范围约束': '#6b7280',
+    '发生调整': '#9467bd'
+  };
+
+  function relationColor(link) {
+    if (link.color) return link.color;
+    return graphRelationColors[link.relation] || '#60758f';
+  }
+
+  function relationLineStyle(link) {
+    return {
+      ...(link.lineStyle || {}),
+      color: relationColor(link)
+    };
+  }
+
+  function renderRelationLegend(graph) {
+    const entries = [];
+    const seen = new Set();
+    for (const link of graph.links || []) {
+      const name = link.relation || link.name || '';
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      entries.push({ name, color: relationColor(link) });
+    }
+    document.getElementById('relationLegend').innerHTML = entries.map(item => `
+      <span class="relation-chip"><i style="background:${item.color}"></i>${escapeHTML(item.name)}</span>
+    `).join('');
+  }
+
+  function renderGraphStatus(message) {
+    document.getElementById('graphInfo').innerHTML = `
+      <div class="node-panel-row">
+        <div class="node-panel-main">${message}</div>
+      </div>
+    `;
+  }
+
+  function renderGraphNodeInfo(data) {
+    const code = data.area_code;
+    if (!code) {
+      document.getElementById('graphInfo').innerHTML = `
+        <div class="node-panel-row">
+          <div class="node-panel-main">
+            <span>节点：${escapeHTML(data.name)}</span>
+            <span>可在关系抽取中继续搜索</span>
+          </div>
+          <div class="node-panel-actions">
+            <a class="button-link" href="${withAppVersion('/relations', { keyword: data.name })}">${escapeHTML(data.name)}</a>
+          </div>
+        </div>
+      `;
+      return;
+    }
+    document.getElementById('graphInfo').innerHTML = `
+      <div class="node-panel-row">
+        <div class="node-panel-main">
+          <span>节点：${escapeHTML(data.name)}</span>
+          <span class="badge">${escapeHTML(data.category || '')}</span>
+          <span class="badge">${escapeHTML(code)}</span>
+          <span>${escapeHTML(data.value || '')}</span>
+        </div>
+        <div class="node-panel-actions">
+          <a class="button-link" href="${withAppVersion(`/area/${encodeURIComponent(code)}`)}">进入区划详情</a>
+          <button class="inline-action" onclick="loadNodeGraph('${encodeURIComponent(data.name)}')">查看局部图谱</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderGraphTooltip(params) {
+    const data = params.data || {};
+    if (params.dataType === 'edge') {
+      const sourceName = data.source_name || data.source || '';
+      const targetName = data.target_name || data.target || '';
+      const relation = data.relation || data.name || '';
+      const relationType = String(data.relation_type || '').trim();
+      const typeLabel = appVersionIsSemantic() ? '语义大类' : '关系类型';
+      const yearText = data.year ? `${escapeHTML(String(data.year))} 年` : '不涉及';
+      const timeOrBasis = relation === '下辖'
+        ? '<div>依据：静态行政区划层级关系</div>'
+        : `<div>变更年份：${yearText}</div>`;
+      return `
+        <div style="min-width:180px;">
+          <strong>${escapeHTML(sourceName)} → ${escapeHTML(targetName)}</strong>
+          <div>关系：${escapeHTML(relation)}</div>
+          ${timeOrBasis}
+          ${relationType ? `<div>${typeLabel}：${escapeHTML(relationType)}</div>` : ''}
+        </div>
+      `;
+    }
+    if (params.dataType === 'node') {
+      const code = data.area_code ? `<div>区划代码：${escapeHTML(data.area_code)}</div>` : '';
+      return `
+        <div>
+          <strong>${escapeHTML(data.name || '')}</strong>
+          <div>类型：${escapeHTML(data.category || '')}</div>
+          ${code}
+        </div>
+      `;
+    }
+    return escapeHTML(params.name || '');
+  }
+
+  function renderGraph(graph, mode) {
+    const el = document.getElementById('graphChart');
+    const chart = el._chart || echarts.init(el);
+    el._chart = chart;
+    chart.setOption({
+      tooltip: {
+        trigger: 'item',
+        confine: true,
+        formatter: renderGraphTooltip
+      },
+      legend: [{ data: graph.categories.map(item => item.name), bottom: 0 }],
+      series: [{
+        type: 'graph',
+        layout: 'force',
+        roam: true,
+        categories: graph.categories,
+        data: graph.nodes,
+        links: graph.links.map(link => ({ ...link, value: link.relation, lineStyle: relationLineStyle(link) })),
+        label: { show: mode === 'search', formatter: '{b}', fontSize: 10 },
+        edgeLabel: { show: mode === 'search', formatter: '{c}', fontSize: 10 },
+        edgeSymbol: ['none', 'arrow'],
+        force: {
+          repulsion: mode === 'overview' ? 210 : 620,
+          edgeLength: mode === 'overview' ? 82 : 165
+        },
+        lineStyle: { width: 1.5, curveness: 0.08, opacity: 0.88 }
+      }]
+    }, true);
+    renderRelationLegend(graph);
+    chart.off('click');
+    chart.on('click', params => {
+      if (params.dataType === 'node') {
+        renderGraphNodeInfo(params.data);
+      } else if (params.dataType === 'edge') {
+        const sourceName = params.data.source_name || params.data.source;
+        const targetName = params.data.target_name || params.data.target;
+        const relationType = String(params.data.relation_type || '').split('/')[0].trim();
+        const relationHref = relationType
+          ? withAppVersion('/relations', { type: relationType })
+          : withAppVersion('/relations', { predicate: params.data.relation });
+        document.getElementById('graphInfo').innerHTML = `
+          <strong>${escapeHTML(sourceName)} → ${escapeHTML(targetName)}</strong>
+          <span class="badge">${escapeHTML(params.data.relation)}</span>
+          ${relationType ? `<span class="badge">${escapeHTML(relationType)}</span>` : ''}
+          <span class="badge">${escapeHTML(params.data.year || '')}</span>
+          <p>${escapeHTML(params.data.evidence || '')}</p>
+          <a href="${relationHref}">查看同类关系</a>
+        `;
+      }
+    });
+  }
+
+  async function loadOverview() {
+    document.getElementById('keyword').value = '';
+    const graph = await getJSON('/api/graph/overview');
+    renderGraphStatus('当前为全国母图谱。点击省级或地市级节点，可进入区划详情或继续查看局部知识图谱。');
+    renderGraph(graph, 'overview');
+  }
+
+  async function loadGraph() {
+    const keyword = document.getElementById('keyword').value.trim();
+    if (!keyword) {
+      await loadOverview();
+      return;
+    }
+    const graph = await getJSON(`/api/graph/search?keyword=${encodeURIComponent(keyword)}`);
+    renderGraphStatus(`当前局部图谱关键词：${escapeHTML(keyword)}。点击节点或边查看详情。`);
+    renderGraph(graph, 'search');
+  }
+
+  window.loadNodeGraph = async encodedName => {
+    document.getElementById('keyword').value = decodeURIComponent(encodedName);
+    await loadGraph();
+  };
+
+  document.getElementById('searchButton').addEventListener('click', loadGraph);
+  document.getElementById('overviewButton').addEventListener('click', loadOverview);
+  document.getElementById('resetGraphButton').addEventListener('click', loadOverview);
+  document.getElementById('keyword').addEventListener('keydown', event => {
+    if (event.key === 'Enter') loadGraph();
+  });
+  if (initialKeyword) {
+    loadGraph();
+  } else {
+    loadOverview();
+  }
+</script>
+{% endblock %}

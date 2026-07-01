@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="section-title">系统首页</h1>
+<p class="subtle">基于行政区划代码、历史变更文本、NER、关系抽取、分类、知识图谱和时序预测构建的综合分析界面。</p>
+
+<section id="metrics" class="grid four section-gap"></section>
+
+<section class="grid two section-gap">
+  <div class="panel">
+    <h2>年度变更趋势</h2>
+    <div id="annualChart" class="chart" data-chart="1"></div>
+  </div>
+  <div class="panel">
+    <h2 id="classificationChartTitle">13类关系分布</h2>
+    <div id="classificationChart" class="chart" data-chart="1"></div>
+  </div>
+</section>
+
+<section class="grid two section-gap">
+  <div class="panel">
+    <h2>行政区划层级分布</h2>
+    <div id="levelChart" class="chart" data-chart="1"></div>
+  </div>
+  <div class="panel">
+    <h2>系统入口</h2>
+    <div class="grid two entry-grid">
+      <a class="entry-panel" href="/areas"><h3>行政区划浏览</h3><p class="subtle">按省、市、区县、乡镇街道钻取，并进入区划详情。</p></a>
+      <a class="entry-panel" href="/graph"><h3>知识图谱</h3><p class="subtle">先看全国母图谱，再点击节点进入局部页面。</p></a>
+      <a class="entry-panel" href="/relations"><h3>关系抽取</h3><p class="subtle">查看可筛选的动态变更三元组。</p></a>
+      <a class="entry-panel" href="/forecast"><h3>时序预测</h3><p class="subtle">查看历史趋势、预测曲线和年份明细。</p></a>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const metricOrder = ['区划编码', '变更记录', 'NER实体', '关系三元组', '关系类型', '分类记录', '静态隶属边', '预测年份'];
+
+  function drawMetrics(counts) {
+    document.getElementById('metrics').innerHTML = metricOrder.map(label => `
+      <div class="panel metric">
+        <div class="label">${label}</div>
+        <div class="value">${Number(counts[label] || 0).toLocaleString()}</div>
+      </div>
+    `).join('');
+  }
+
+  function updateVersionText() {
+    document.getElementById('classificationChartTitle').textContent = appVersionIsSemantic()
+      ? '语义大类分布'
+      : '13类关系分布';
+  }
+
+  function drawAnnualChart(rows) {
+    const chart = echarts.init(document.getElementById('annualChart'));
+    document.getElementById('annualChart')._chart = chart;
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      grid: { left: 50, right: 24, top: 34, bottom: 42 },
+      xAxis: { type: 'category', data: rows.map(row => row.year) },
+      yAxis: { type: 'value', name: '次数' },
+      series: [{
+        name: '年度变更次数',
+        type: 'line',
+        symbolSize: 8,
+        data: rows.map(row => row.total_changes),
+        areaStyle: { opacity: 0.08 },
+        lineStyle: { width: 3 }
+      }]
+    });
+    chart.on('click', params => {
+      if (params.name) location.href = withAppVersion('/forecast', { year: params.name });
+    });
+  }
+
+  function drawClassificationChart(distribution) {
+    const entries = Object.entries(distribution).sort((a, b) => b[1] - a[1]);
+    const chart = echarts.init(document.getElementById('classificationChart'));
+    document.getElementById('classificationChart')._chart = chart;
+    chart.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: 88, right: 24, top: 30, bottom: 34 },
+      xAxis: { type: 'value' },
+      yAxis: { type: 'category', data: entries.map(item => item[0]).reverse() },
+      series: [{
+        type: 'bar',
+        data: entries.map(item => item[1]).reverse(),
+        itemStyle: { color: appVersionIsSemantic() ? '#e45756' : '#4c78a8' }
+      }]
+    });
+    chart.on('click', params => {
+      if (params.name) location.href = withAppVersion('/classification', { type: params.name });
+    });
+  }
+
+  function drawLevelChart(distribution) {
+    const chart = echarts.init(document.getElementById('levelChart'));
+    document.getElementById('levelChart')._chart = chart;
+    chart.setOption({
+      tooltip: { trigger: 'item' },
+      legend: { bottom: 0 },
+      series: [{
+        type: 'pie',
+        radius: ['40%', '68%'],
+        center: ['50%', '44%'],
+        data: Object.entries(distribution).map(([name, value]) => ({ name, value }))
+      }]
+    });
+  }
+
+  async function init() {
+    updateVersionText();
+    const overview = await getJSON('/api/overview');
+    drawMetrics(overview.counts);
+    drawAnnualChart(overview.annual_total);
+    drawClassificationChart(overview.classification_distribution);
+    drawLevelChart(overview.level_distribution);
+  }
+  init();
+</script>
+{% endblock %}
