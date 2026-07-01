@@ -43,6 +43,7 @@
 | `pyproject.toml` | Python 工程元数据、可编辑安装配置和命令入口。 |
 | `requirements.txt` | 完整运行依赖，包含 PaddleNLP、Web、预测和图谱相关库。 |
 | `Makefile` | 常用安装、检查、运行命令封装。 |
+| `LICENSE` | MIT 开源协议文本。 |
 | `.gitignore` | GitHub 提交忽略规则，排除生成产物、缓存、日志和虚拟环境。 |
 | `tests/test_project_structure.py` | 不依赖第三方库的项目结构、入口和源数据清单检查。 |
 | `docs/project_structure.md` | 工程结构与 GitHub 提交说明。 |

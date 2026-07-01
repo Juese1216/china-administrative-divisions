@@ -77,6 +77,12 @@ conda run --no-capture-output -n nlpEnv python src/relation.py
 conda run --no-capture-output -n nlpEnv python src/classify.py
 ```
 
+可选：生成分类实验对比表，用于课程报告中比较 13 类/6 类、弱监督/强监督方案。
+
+```bash
+conda run --no-capture-output -n nlpEnv python scripts/run_classification_comparison.py
+```
+
 5. 知识图谱：Neo4j 导入表、静态树图和动态时间轴。
 
 ```bash
@@ -122,6 +128,7 @@ PORT=5001 conda run --no-capture-output -n nlpEnv python web/web_app.py
 | NER | `src/ner.py` |
 | RE | `src/relation.py` |
 | 分类 | `src/classify.py` |
+| 分类实验对比 | `scripts/run_classification_comparison.py` |
 | 知识图谱 | `src/graph.py` |
 | 时序预测 | `src/forecast.py` |
 | 乡镇街道/自然村数量预测 | `src/rural_atlas/` |
@@ -140,6 +147,7 @@ PORT=5001 conda run --no-capture-output -n nlpEnv python web/web_app.py
 ## 文档入口
 
 - [文件说明](docs/file_index.md)
+- [提交说明](提交说明.md)
 - [工程结构与 GitHub 提交说明](docs/project_structure.md)
 - [NLP 统计](docs/nlp_relation_stats.md)
 - [NER 流程](docs/ner_rule_uie_workflow.md)
@@ -150,3 +158,7 @@ PORT=5001 conda run --no-capture-output -n nlpEnv python web/web_app.py
 - [时序预测](docs/time_series_forecast.md)
 - [时序预测 V2](docs/rural_time_series_forecast.md)
 - [Web 仪表盘](docs/web_dashboard.md)
+
+## License
+
+本项目使用 [MIT License](LICENSE)。

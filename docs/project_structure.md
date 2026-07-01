@@ -24,7 +24,7 @@ GitHub 仓库提交。
 - `src/`、`web/`、`scripts/`、`config/`、`docs/`
 - `data/source/` 中用于复现的源数据和来源登记
 - `README.md`、`requirements.txt`、`pyproject.toml`、`Makefile`
-- `.gitignore`
+- `LICENSE`、`.gitignore`
 
 不建议提交：
 

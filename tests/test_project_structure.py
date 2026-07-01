@@ -20,6 +20,7 @@ class ProjectStructureTest(unittest.TestCase):
             "requirements.txt",
             "pyproject.toml",
             "Makefile",
+            "LICENSE",
             ".gitignore",
             "src/ner.py",
             "src/relation.py",
@@ -51,6 +52,13 @@ class ProjectStructureTest(unittest.TestCase):
         required_patterns = ["data/processed/", "data/app/", "models/", "*.sqlite", "*.log"]
         for pattern in required_patterns:
             self.assertIn(pattern, gitignore)
+
+    def test_mit_license_metadata_exists(self) -> None:
+        license_text = (PROJECT_ROOT / "LICENSE").read_text(encoding="utf-8")
+        self.assertIn("MIT License", license_text)
+        self.assertIn("Copyright (c) 2026 Juese1216", license_text)
+        pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('license = { file = "LICENSE" }', pyproject)
 
     def test_mca_manifest_files_exist(self) -> None:
         manifest = PROJECT_ROOT / "data/source/mca_changes/manifest.csv"
